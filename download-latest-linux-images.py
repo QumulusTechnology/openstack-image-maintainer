@@ -51,10 +51,10 @@ class Image(object):
 
 ImageArray: List[Image] = []
 
-ImageArray.append(Image("8", ImageType.centos_stream))
-ImageArray.append(Image("9", ImageType.centos_stream))
-ImageArray.append(Image("36", ImageType.fedora))
-ImageArray.append(Image("stable", ImageType.fedora_core))
+# ImageArray.append(Image("8", ImageType.centos_stream))
+# ImageArray.append(Image("9", ImageType.centos_stream))
+# ImageArray.append(Image("36", ImageType.fedora))
+# ImageArray.append(Image("stable", ImageType.fedora_core))
 ImageArray.append(Image("9", ImageType.debian))
 ImageArray.append(Image("10", ImageType.debian))
 ImageArray.append(Image("18.04-bionic", ImageType.ubuntu))
@@ -112,7 +112,8 @@ for image in ImageArray:
     imageUrl = ""
     fileName = ""
     checksum = ""
-    
+
+
     if image.imageType == ImageType.centos_stream:
         url = "https://cloud.centos.org/centos/{}-stream/x86_64/images/".format(image.version)
         startsWith = "https://cloud.centos.org/centos/{}-stream/x86_64/images/CentOS-Stream-GenericCloud-{}".format(image.version, image.version)
@@ -179,7 +180,7 @@ for image in ImageArray:
         os.remove(tmpLocation)
     if fileName.endswith(".xz") and os.path.exists(tmpLocation[:-3]):
         os.remove(tmpLocation[:-3])
-    os.system("curl -s {} --output {}".format(imageUrl, tmpLocation))
+    os.system("curl -L -s {} --output {}".format(imageUrl, tmpLocation))
     if (fileName.endswith(".xz")):
         os.system("xz -d {}".format(tmpLocation))
         tmpLocation=tmpLocation[:-3]
