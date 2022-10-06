@@ -4,12 +4,11 @@ pipeline {
       yaml """
 kind: Pod
 spec:
+  serviceAccountName: jenkins-agent
   containers:
   - name: jnlp
     image: repo.qumulus.io/jenkins/jenkins-inbound-agent-ubuntu-jammy:1.0.1
     imagePullPolicy: IfNotPresent
-    imagePullSecrets:
-    - name: qumulus-repo-docker-credentials
     resources:
       limits:
         cpu: "1000m"
@@ -21,6 +20,8 @@ spec:
     - sleep
     args:
     - 9999999
+  imagePullSecrets:
+  - name: qumulus-repo-docker-credentials
 """
     }
   }
