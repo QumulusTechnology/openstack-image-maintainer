@@ -43,6 +43,7 @@ spec:
                 }
 
             sh '''
+            export OS_AUTH_URL="${OS_AUTH_URL}/v3"
             ./download-latest-linux-images.py
             '''
           }
