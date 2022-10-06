@@ -44,7 +44,7 @@ spec:
 
             sh '''
             export OS_AUTH_URL="${OS_AUTH_URL}/v3"
-            ./download-latest-linux-images.py
+            python3 -u ./download-latest-linux-images.py
             '''
           }
         }
