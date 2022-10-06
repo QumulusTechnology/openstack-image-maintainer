@@ -251,4 +251,6 @@ for image in ImageArray:
     if existingId != "":
         glance.images.delete(existingId)
 
+    os.remove(tmpLocation)
+    
     print (imageName + " " + imageUrl + " " + checksum)
