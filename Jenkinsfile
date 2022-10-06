@@ -6,7 +6,7 @@ kind: Pod
 spec:
   containers:
   - name: jnlp
-    image: repo.qumulus.io/jenkins/jenkins-inbound-agent-ubuntu-jammy:latest
+    image: repo.qumulus.io/jenkins/jenkins-inbound-agent-ubuntu-jammy:1.0.1
     imagePullPolicy: IfNotPresent
     imagePullSecrets:
     - name: qumulus-repo-docker-credentials
