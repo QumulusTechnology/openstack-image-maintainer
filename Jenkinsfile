@@ -7,7 +7,7 @@ spec:
   serviceAccountName: jenkins-agent
   containers:
   - name: jnlp
-    image: repo.qumulus.io/jenkins/jenkins-inbound-agent-ubuntu-jammy:1.0.1
+    image: repo.qumulus.io/jenkins/jenkins-inbound-agent-ubuntu-jammy:1.0.2
     imagePullPolicy: IfNotPresent
     resources:
       limits:
