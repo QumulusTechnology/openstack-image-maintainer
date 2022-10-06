@@ -51,10 +51,10 @@ class Image(object):
 
 ImageArray: List[Image] = []
 
-# ImageArray.append(Image("8", ImageType.centos_stream))
-# ImageArray.append(Image("9", ImageType.centos_stream))
-# ImageArray.append(Image("36", ImageType.fedora))
-# ImageArray.append(Image("stable", ImageType.fedora_core))
+ImageArray.append(Image("8", ImageType.centos_stream))
+ImageArray.append(Image("9", ImageType.centos_stream))
+ImageArray.append(Image("36", ImageType.fedora))
+ImageArray.append(Image("stable", ImageType.fedora_core))
 ImageArray.append(Image("9", ImageType.debian))
 ImageArray.append(Image("10", ImageType.debian))
 ImageArray.append(Image("18.04-bionic", ImageType.ubuntu))
