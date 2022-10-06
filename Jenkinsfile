@@ -6,7 +6,7 @@ kind: Pod
 spec:
   serviceAccountName: jenkins-agent
   containers:
-  - name: jnlp
+  - name: ubuntu
     image: repo.qumulus.io/jenkins/jenkins-inbound-agent-ubuntu-jammy:1.0.2
     imagePullPolicy: IfNotPresent
     resources:
@@ -28,7 +28,7 @@ spec:
   stages {
     stage('Upload images') {
       steps {
-        container(name: 'jnlp', shell: '/bin/bash') {
+        container(name: 'ubuntu', shell: '/bin/bash') {
             withCredentials([file(credentialsId: 'openstack-credentials', variable: 'OPENSTACK_RC_FILE')]) {
                 script {
                     env.OS_PROJECT_DOMAIN_NAME = sh(script:'. $OPENSTACK_RC_FILE ; echo $OS_PROJECT_DOMAIN_NAME', returnStdout: true).trim()
