@@ -58,6 +58,7 @@ change_line_sshd PasswordAuthentication no
 change_line_sshd UsePAM yes
 change_line_sshd MaxAuthTries 15
 change_line_sshd PermitRootLogin yes
+change_line_sshd AcceptEnv "LANG LC_* OS_* VAULT_* ARM_* TF_*"
 
 SELINUX_STATUS=$(getenforce 2> /dev/null)
 
