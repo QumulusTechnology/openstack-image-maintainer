@@ -13,9 +13,11 @@ spec:
       limits:
         cpu: "1000m"
         memory: "1Gi"
+        ephemeral-storage: "3Gi"
       requests:
         cpu: "1000m"
         memory: "1Gi"
+        ephemeral-storage: "3Gi"
     command:
     - sleep
     args:
