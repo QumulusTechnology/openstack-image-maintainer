@@ -42,6 +42,7 @@ class ImageType(Enum):
     fedora_core = 3
     debian = 4
     ubuntu = 5
+    cirros = 6
 
 
 class Image(object):
@@ -51,16 +52,17 @@ class Image(object):
 
 ImageArray: List[Image] = []
 
-ImageArray.append(Image("8", ImageType.centos_stream))
-ImageArray.append(Image("9", ImageType.centos_stream))
-ImageArray.append(Image("36", ImageType.fedora))
-ImageArray.append(Image("stable", ImageType.fedora_core))
-ImageArray.append(Image("9", ImageType.debian))
-ImageArray.append(Image("10", ImageType.debian))
-ImageArray.append(Image("18.04-bionic", ImageType.ubuntu))
-ImageArray.append(Image("20.04-focal", ImageType.ubuntu))
-ImageArray.append(Image("22.04-jammy", ImageType.ubuntu))
-ImageArray.append(Image("22.10-kinetic", ImageType.ubuntu))
+#ImageArray.append(Image("8", ImageType.centos_stream))
+#ImageArray.append(Image("9", ImageType.centos_stream))
+#ImageArray.append(Image("36", ImageType.fedora))
+#ImageArray.append(Image("stable", ImageType.fedora_core))
+#ImageArray.append(Image("9", ImageType.debian))
+#ImageArray.append(Image("10", ImageType.debian))
+#ImageArray.append(Image("18.04-bionic", ImageType.ubuntu))
+#ImageArray.append(Image("20.04-focal", ImageType.ubuntu))
+#ImageArray.append(Image("22.04-jammy", ImageType.ubuntu))
+#ImageArray.append(Image("22.10-kinetic", ImageType.ubuntu))
+ImageArray.append(Image("0.6.1", ImageType.cirros))
 
 def get_image_path(url, startsWith, ext='qcow2', checksum="CHECKSUM", params={}):
     response = requests.get(url, params=params)
@@ -100,6 +102,11 @@ def get_checksum(checksum_url, fileName, imageType: ImageType):
             lineArray = line.split(" ")
             if (len(lineArray) == 2 and lineArray[1] == "*" + fileName):
                 checksum = lineArray[0]
+    if (imageType == ImageType.cirros):
+        for line in response_text.split("\n"):
+            lineArray = line.split(" ")
+            if (len(lineArray) == 3 and lineArray[2] == fileName):
+                checksum = lineArray[0]
     return checksum
 
 for image in ImageArray:
@@ -126,7 +133,7 @@ for image in ImageArray:
 
     if image.imageType == ImageType.fedora:
         url = "https://fedora.mirrorservice.org/fedora/linux/releases/{}/Cloud/x86_64/images/".format(image.version)
-        startsWith = "https://fedora.mirrorservice.org/fedora/linux/releases/36/Cloud/x86_64/images/Fedora-Cloud-Base-{}".format(image.version)
+        startsWith = "https://fedora.mirrorservice.org/fedora/linux/releases/{}/Cloud/x86_64/images/Fedora-Cloud-Base-{}".format(image.version, image.version)
         imagePath = get_image_path(url, startsWith)
         imageUrl = imagePath[0]
         fileName = os.path.basename(imageUrl)
@@ -174,6 +181,13 @@ for image in ImageArray:
         checksum = get_checksum("https://cloud-images.ubuntu.com/{}/current/SHA256SUMS".format(versionName),fileName, image.imageType)
         os_distro = "ubuntu"
 
+    if image.imageType == ImageType.cirros:
+        imageUrl = "https://download.cirros-cloud.net/{}/cirros-{}-x86_64-disk.img".format(image.version, image.version)
+        fileName = os.path.basename(imageUrl)
+        checksum = get_checksum("https://download.cirros-cloud.net/{}/MD5SUMS".format(image.version),fileName, image.imageType)
+        imageName = "Cirros-{}".format(image.version)
+        os_distro = "cirros"
+
 
     tmpLocation="/tmp/{}".format(fileName)
     if os.path.exists(tmpLocation):
@@ -184,12 +198,17 @@ for image in ImageArray:
     if (fileName.endswith(".xz")):
         os.system("xz -d {}".format(tmpLocation))
         tmpLocation=tmpLocation[:-3]
-    sha256sumOutput=subprocess.run(['sha256sum', tmpLocation], stdout=subprocess.PIPE)
-    sha256sum=sha256sumOutput.stdout.decode('UTF-8').split("\n")[0].split(" ")[0]
-    if (checksum != sha256sum):
+    if image.imageType == ImageType.cirros:
+        checksumOutput=subprocess.run(['md5sum', tmpLocation], stdout=subprocess.PIPE)
+        calculatedChecksum=checksumOutput.stdout.decode('UTF-8').split("\n")[0].split(" ")[0]
+    else: 
+        checksumOutput=subprocess.run(['sha256sum', tmpLocation], stdout=subprocess.PIPE)
+        calculatedChecksum=checksumOutput.stdout.decode('UTF-8').split("\n")[0].split(" ")[0]
+
+    if (checksum != calculatedChecksum):
         raise Exception("{} checksum is not {}".format(tmpLocation, checksum))
 
-    if image.imageType != ImageType.fedora_core:
+    if image.imageType != ImageType.fedora_core and image.imageType != ImageType.cirros :
         g = guestfs.GuestFS(python_return_dict=True)
         g.add_drive_opts(tmpLocation, readonly=0)
         g.launch()
@@ -237,7 +256,7 @@ for image in ImageArray:
 
     image = glance.images.create(
         name=imageName,
-        is_public='True',
+        is_public="true",
         disk_format="qcow2",
         container_format="bare",
         hw_qemu_guest_agent="yes",
@@ -247,6 +266,9 @@ for image in ImageArray:
         )
 
     glance.images.upload(image.id, open(tmpLocation, 'rb'))
+    glance.images.update(image.id, 
+            is_public="true"
+            )
 
     if existingId != "":
         glance.images.delete(existingId)
