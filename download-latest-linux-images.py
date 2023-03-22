@@ -10,6 +10,7 @@ import json
 import subprocess
 import guestfs
 import sys
+from datetime import datetime
 
 from jsonpath_ng import jsonpath, parse
 from os import environ as env
@@ -19,7 +20,6 @@ import keystoneclient.v3.client as ksclient
 from os_client_config import config as cloud_config
 
 from openstackclient.common import clientmanager
-
 
 
 keystone = ksclient.Client(auth_url=env['OS_AUTH_URL'],
@@ -33,8 +33,8 @@ glance_endpoint = keystone.service_catalog.url_for(service_type='image')
 glance = glclient.Client(glance_endpoint, token=keystone.auth_token)
 
 
-
 currentPath = os.path.dirname(os.path.realpath(__file__))
+
 
 class ImageType(Enum):
     centos_stream = 1
@@ -42,6 +42,7 @@ class ImageType(Enum):
     fedora_core = 3
     debian = 4
     ubuntu = 5
+    centos = 7
 
 
 class Image(object):
@@ -49,10 +50,11 @@ class Image(object):
         self.version = version
         self.imageType = imageType
 
+
 ImageArray: List[Image] = []
 
-  
-ImageArray.append(Image("7", ImageType.centos_stream))
+
+ImageArray.append(Image("7", ImageType.centos))
 ImageArray.append(Image("8", ImageType.centos_stream))
 ImageArray.append(Image("9", ImageType.centos_stream))
 ImageArray.append(Image("36", ImageType.fedora))
@@ -64,6 +66,7 @@ ImageArray.append(Image("20.04-focal", ImageType.ubuntu))
 ImageArray.append(Image("22.04-jammy", ImageType.ubuntu))
 ImageArray.append(Image("22.10-kinetic", ImageType.ubuntu))
 
+
 def get_image_path(url, startsWith, ext='qcow2', checksum="CHECKSUM", params={}):
     response = requests.get(url, params=params)
     if response.ok:
@@ -71,14 +74,18 @@ def get_image_path(url, startsWith, ext='qcow2', checksum="CHECKSUM", params={})
     else:
         raise Exception(response.raise_for_status())
     soup = BeautifulSoup(response_text, 'html.parser')
-    images = [url + node.get('href') for node in soup.find_all('a') if node.get('href').endswith(ext)]
-    checksum_url = [url + node.get('href') for node in soup.find_all('a') if node.get('href').endswith(checksum)][0]
+    images = [url + node.get('href') for node in soup.find_all('a')
+              if node.get('href').endswith(ext)]
+
+    checksum_url = [url + node.get('href') for node in soup.find_all('a')
+                    if node.get('href').endswith(checksum)][0]
     latestImage = ""
     for image in images:
         if (image.startswith(startsWith)):
             latestImage = image
 
-    return [ latestImage, checksum_url ]
+    return [latestImage, checksum_url]
+
 
 def get_checksum(checksum_url, fileName, imageType: ImageType):
     checksum = ""
@@ -102,7 +109,13 @@ def get_checksum(checksum_url, fileName, imageType: ImageType):
             lineArray = line.split(" ")
             if (len(lineArray) == 2 and lineArray[1] == "*" + fileName):
                 checksum = lineArray[0]
+    if (imageType == ImageType.centos):
+        for line in response_text.split("\n"):
+            lineArray = line.split("  ")
+            if (len(lineArray) == 2 and lineArray[1] == fileName):
+                checksum = lineArray[0]
     return checksum
+
 
 for image in ImageArray:
     # imageName = "Fedora-Cloud-36"
@@ -115,29 +128,46 @@ for image in ImageArray:
     fileName = ""
     checksum = ""
 
-
     if image.imageType == ImageType.centos_stream:
-        url = "https://cloud.centos.org/centos/{}-stream/x86_64/images/".format(image.version)
-        startsWith = "https://cloud.centos.org/centos/{}-stream/x86_64/images/CentOS-Stream-GenericCloud-{}".format(image.version, image.version)
+        url = "https://cloud.centos.org/centos/{}-stream/x86_64/images/".format(
+            image.version)
+        startsWith = "https://cloud.centos.org/centos/{}-stream/x86_64/images/CentOS-Stream-GenericCloud-{}".format(
+            image.version, image.version)
         imagePath = get_image_path(url, startsWith)
         imageUrl = imagePath[0]
         fileName = os.path.basename(imageUrl)
-        checksum = get_checksum(imagePath[1],fileName, image.imageType)
+        checksum = get_checksum(imagePath[1], fileName, image.imageType)
         imageName = "CentOS-Stream-{}".format(image.version)
         os_distro = "centos"
 
+    if image.imageType == ImageType.centos:
+        url = "https://cloud.centos.org/centos/{}/images/".format(
+            image.version)
+        startsWith = "https://cloud.centos.org/centos/{}/images/CentOS-{}-x86_64-GenericCloud-".format(
+            image.version, image.version)
+        imagePath = get_image_path(
+            url, startsWith, ext='qcow2', checksum="sha256sum.txt")
+        imageUrl = imagePath[0]
+        fileName = os.path.basename(imageUrl)
+        checksum = get_checksum(imagePath[1], fileName, image.imageType)
+        imageName = "CentOS-{}".format(image.version)
+        os_distro = "centos"
+
     if image.imageType == ImageType.fedora:
-        url = "https://fedora.mirrorservice.org/fedora/linux/releases/{}/Cloud/x86_64/images/".format(image.version)
-        startsWith = "https://fedora.mirrorservice.org/fedora/linux/releases/36/Cloud/x86_64/images/Fedora-Cloud-Base-{}".format(image.version)
+        url = "https://fedora.mirrorservice.org/fedora/linux/releases/{}/Cloud/x86_64/images/".format(
+            image.version)
+        startsWith = "https://fedora.mirrorservice.org/fedora/linux/releases/36/Cloud/x86_64/images/Fedora-Cloud-Base-{}".format(
+            image.version)
         imagePath = get_image_path(url, startsWith)
         imageUrl = imagePath[0]
         fileName = os.path.basename(imageUrl)
-        checksum = get_checksum(imagePath[1],fileName, image.imageType)
+        checksum = get_checksum(imagePath[1], fileName, image.imageType)
         imageName = "Fedora-Cloud-{}".format(image.version)
         os_distro = "fedora-cloud"
 
     if image.imageType == ImageType.fedora_core:
-        url = "https://builds.coreos.fedoraproject.org/streams/{}.json".format(image.version)
+        url = "https://builds.coreos.fedoraproject.org/streams/{}.json".format(
+            image.version)
         response = requests.get(url)
         if response.ok:
             response_text = response.text
@@ -145,39 +175,46 @@ for image in ImageArray:
             raise Exception(response.raise_for_status())
         json_data = json.loads(response.content)
 
-        jsonpath_expression = parse('$.architectures.x86_64.artifacts.openstack.release')
+        jsonpath_expression = parse(
+            '$.architectures.x86_64.artifacts.openstack.release')
         match = jsonpath_expression.find(json_data)
         version = match[0].value
         imageName = "Fedora-Core-{}".format(version.split(".")[0])
 
-        jsonpath_expression = parse('$.architectures.x86_64.artifacts.openstack.formats["qcow2.xz"].disk.location')
+        jsonpath_expression = parse(
+            '$.architectures.x86_64.artifacts.openstack.formats["qcow2.xz"].disk.location')
         match = jsonpath_expression.find(json_data)
         imageUrl = match[0].value
         fileName = os.path.basename(imageUrl)
 
-        jsonpath_expression = parse('$.architectures.x86_64.artifacts.openstack.formats["qcow2.xz"].disk["uncompressed-sha256"]')
+        jsonpath_expression = parse(
+            '$.architectures.x86_64.artifacts.openstack.formats["qcow2.xz"].disk["uncompressed-sha256"]')
         match = jsonpath_expression.find(json_data)
         checksum = match[0].value
         os_distro = "fedora-coreos"
 
     if image.imageType == ImageType.debian:
         imageName = "Debian-{}".format(image.version)
-        imageUrl = "https://cloud.debian.org/cdimage/cloud/OpenStack/current-{}/debian-{}-openstack-amd64.qcow2".format(image.version, image.version)
+        imageUrl = "https://cloud.debian.org/cdimage/cloud/OpenStack/current-{}/debian-{}-openstack-amd64.qcow2".format(
+            image.version, image.version)
         fileName = os.path.basename(imageUrl)
-        checksum = get_checksum("https://cloud.debian.org/cdimage/cloud/OpenStack/current-{}/SHA256SUMS".format(image.version),fileName, image.imageType)
+        checksum = get_checksum(
+            "https://cloud.debian.org/cdimage/cloud/OpenStack/current-{}/SHA256SUMS".format(image.version), fileName, image.imageType)
         os_distro = "ubuntu"
 
     if image.imageType == ImageType.ubuntu:
         versionNumber = image.version.split("-")[0]
         versionName = image.version.split("-")[1]
-        imageName = "Ubuntu-{}-{}".format(versionNumber, versionName.capitalize())
-        imageUrl = "https://cloud-images.ubuntu.com/{}/current/{}-server-cloudimg-amd64.img".format(versionName, versionName)
+        imageName = "Ubuntu-{}-{}".format(versionNumber,
+                                          versionName.capitalize())
+        imageUrl = "https://cloud-images.ubuntu.com/{}/current/{}-server-cloudimg-amd64.img".format(
+            versionName, versionName)
         fileName = os.path.basename(imageUrl)
-        checksum = get_checksum("https://cloud-images.ubuntu.com/{}/current/SHA256SUMS".format(versionName),fileName, image.imageType)
+        checksum = get_checksum(
+            "https://cloud-images.ubuntu.com/{}/current/SHA256SUMS".format(versionName), fileName, image.imageType)
         os_distro = "ubuntu"
 
-
-    tmpLocation="/tmp/{}".format(fileName)
+    tmpLocation = "/tmp/{}".format(fileName)
     if os.path.exists(tmpLocation):
         os.remove(tmpLocation)
     if fileName.endswith(".xz") and os.path.exists(tmpLocation[:-3]):
@@ -185,9 +222,11 @@ for image in ImageArray:
     os.system("curl -L -s {} --output {}".format(imageUrl, tmpLocation))
     if (fileName.endswith(".xz")):
         os.system("xz -d {}".format(tmpLocation))
-        tmpLocation=tmpLocation[:-3]
-    sha256sumOutput=subprocess.run(['sha256sum', tmpLocation], stdout=subprocess.PIPE)
-    sha256sum=sha256sumOutput.stdout.decode('UTF-8').split("\n")[0].split(" ")[0]
+        tmpLocation = tmpLocation[:-3]
+    sha256sumOutput = subprocess.run(
+        ['sha256sum', tmpLocation], stdout=subprocess.PIPE)
+    sha256sum = sha256sumOutput.stdout.decode(
+        'UTF-8').split("\n")[0].split(" ")[0]
     if (checksum != sha256sum):
         raise Exception("{} checksum is not {}".format(tmpLocation, checksum))
 
@@ -206,8 +245,8 @@ for image in ImageArray:
             # Print basic information about the operating system.
             print("  Product name: %s" % (g.inspect_get_product_name(root)))
             print("  Version:      %d.%d" %
-                (g.inspect_get_major_version(root),
-                    g.inspect_get_minor_version(root)))
+                  (g.inspect_get_major_version(root),
+                   g.inspect_get_minor_version(root)))
             print("  Type:         %s" % (g.inspect_get_type(root)))
             print("  Distro:       %s" % (g.inspect_get_distro(root)))
 
@@ -222,12 +261,13 @@ for image in ImageArray:
                 except RuntimeError as msg:
                     print("%s (ignored)" % msg)
 
-            remoteDir="/var/lib/cloud/scripts/per-once"
+            remoteDir = "/var/lib/cloud/scripts/per-once"
             g.mkdir_p(remoteDir)
-            g.copy_in(os.path.join(currentPath,"install-vault-ssh.sh"),remoteDir)
+            g.copy_in(os.path.join(
+                currentPath, "install-vault-ssh.sh"), remoteDir)
 
             # Unmount everything.
-            g.sync ()
+            g.sync()
             g.umount_all()
 
     existingId = ""
@@ -235,7 +275,6 @@ for image in ImageArray:
     for glanceImage in glanceImages:
         if glanceImage.name == imageName:
             existingId = glanceImage.id
-
 
     image = glance.images.create(
         name=imageName,
@@ -246,13 +285,58 @@ for image in ImageArray:
         hw_rng_model="virtio",
         hw_architecture="x86_64",
         os_distro=os_distro
-        )
+
+    )
 
     glance.images.upload(image.id, open(tmpLocation, 'rb'))
 
+    patchBody = [
+        {
+            "op": "replace",
+            "path": "/visibility",
+            "value": "public"
+        },
+        {
+            "op": "replace",
+            "path": "/owner",
+            "value": "f658461a492f4d68846843779506a194"
+        },
+    ]
+
+    glance.images._send_image_update_request(
+        image_id=image.id,
+        patch_body=patchBody,
+    )
+
     if existingId != "":
-        glance.images.delete(existingId)
+
+        dateString = datetime.today().strftime('%Y-%m-%d')
+
+        newImageName = "{} {} (Archived)".format(imageName, dateString)
+
+        patchBody = [
+            {
+                "op": "replace",
+                "path": "/visibility",
+                "value": "private"
+            },
+            {
+                "op": "replace",
+                "path": "/owner",
+                "value": "7b41202e0f59454dbcb56e3c5838893f"
+            },
+            {
+                "op": "replace",
+                "path": "/name",
+                "value": newImageName
+            }
+        ]
+
+        glance.images._send_image_update_request(
+            image_id=existingId,
+            patch_body=patchBody,
+        )
 
     os.remove(tmpLocation)
-    
-    print (imageName + " " + imageUrl + " " + checksum)
+
+    print(imageName + " " + imageUrl + " " + checksum)

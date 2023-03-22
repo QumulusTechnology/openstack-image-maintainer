@@ -55,6 +55,7 @@ change_line_sshd() {
 
 change_line_sshd ChallengeResponseAuthentication yes
 change_line_sshd PasswordAuthentication no
+change_line_sshd KbdInteractiveAuthentication yes
 change_line_sshd UsePAM yes
 change_line_sshd MaxAuthTries 15
 change_line_sshd PermitRootLogin yes
