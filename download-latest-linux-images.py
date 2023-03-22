@@ -51,6 +51,8 @@ class Image(object):
 
 ImageArray: List[Image] = []
 
+  
+ImageArray.append(Image("7", ImageType.centos_stream))
 ImageArray.append(Image("8", ImageType.centos_stream))
 ImageArray.append(Image("9", ImageType.centos_stream))
 ImageArray.append(Image("36", ImageType.fedora))
