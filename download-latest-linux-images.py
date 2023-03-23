@@ -11,6 +11,7 @@ import subprocess
 import guestfs
 import sys
 from datetime import datetime
+import re
 
 from jsonpath_ng import jsonpath, parse
 from os import environ as env
@@ -141,17 +142,43 @@ for image in ImageArray:
         os_distro = "centos"
 
     if image.imageType == ImageType.centos:
-        url = "https://cloud.centos.org/centos/{}/images/".format(
+        url = "https://cloud.centos.org/centos/{}/images/image-index".format(
             image.version)
-        startsWith = "https://cloud.centos.org/centos/{}/images/CentOS-{}-x86_64-GenericCloud-".format(
-            image.version, image.version)
-        imagePath = get_image_path(
-            url, startsWith, ext='qcow2', checksum="sha256sum.txt")
-        imageUrl = imagePath[0]
+
+        response = requests.get(url)
+        if response.ok:
+            response_text = response.text
+        else:
+            raise Exception(response.raise_for_status())
+
+        text1 = "^file\=CentOS-{}-x86_64-GenericCloud-".format(
+             image.version)
+        pattern1 = re.compile(text1)
+        pattern2 = re.compile("^checksum\=")
+
+        latest=False
+        fileName=""
+        imageNumber=0
+        checksum=""
+        for line in response_text.split("\n"):
+            if pattern1.match(line):
+                fileNameLocal=line[5:]
+                imageNumberLocal=int(fileNameLocal.split("-")[4].split(".")[0])
+                if (imageNumberLocal > imageNumber and imageNumberLocal < 10000):
+                    latest = True
+                    imageNumber = imageNumberLocal
+                    fileName = fileNameLocal
+                else:
+                    latest = False
+            if latest == True:
+                if pattern2.match(line):
+                    checksum=line[9:]
+
+        imageUrl = "https://cloud.centos.org/centos/{}/images/{}".format(
+            image.version, fileName)
         fileName = os.path.basename(imageUrl)
-        checksum = get_checksum(imagePath[1], fileName, image.imageType)
-        imageName = "CentOS-{}".format(image.version)
         os_distro = "centos"
+        imageName = "CentOS-{}".format(image.version)
 
     if image.imageType == ImageType.fedora:
         url = "https://fedora.mirrorservice.org/fedora/linux/releases/{}/Cloud/x86_64/images/".format(
@@ -220,14 +247,20 @@ for image in ImageArray:
     if fileName.endswith(".xz") and os.path.exists(tmpLocation[:-3]):
         os.remove(tmpLocation[:-3])
     os.system("curl -L -s {} --output {}".format(imageUrl, tmpLocation))
+
+    sha256sumOutputXz = ""
+    sha256sumXz = ""
+
     if (fileName.endswith(".xz")):
+        sha256sumOutputXz = subprocess.run(['sha256sum', tmpLocation], stdout=subprocess.PIPE)
+        sha256sumXz = sha256sumOutputXz.stdout.decode('UTF-8').split("\n")[0].split(" ")[0]
         os.system("xz -d {}".format(tmpLocation))
         tmpLocation = tmpLocation[:-3]
     sha256sumOutput = subprocess.run(
         ['sha256sum', tmpLocation], stdout=subprocess.PIPE)
     sha256sum = sha256sumOutput.stdout.decode(
         'UTF-8').split("\n")[0].split(" ")[0]
-    if (checksum != sha256sum):
+    if (checksum != sha256sum and sha256sumXz != "" and sha256sumXz != sha256sumXz):
         raise Exception("{} checksum is not {}".format(tmpLocation, checksum))
 
     if image.imageType != ImageType.fedora_core:
@@ -251,9 +284,10 @@ for image in ImageArray:
             print("  Distro:       %s" % (g.inspect_get_distro(root)))
 
             # Mount up the disks, like guestfish -i.
-            #
+
             # Sort keys by length, shortest first, so that we end up
             # mounting the filesystems in the correct order.
+
             mps = g.inspect_get_mountpoints(root)
             for device, mp in sorted(mps.items(), key=lambda k: len(k[0])):
                 try:
