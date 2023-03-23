@@ -16,6 +16,7 @@ from jsonpath_ng import jsonpath, parse
 from os import environ as env
 import glanceclient.v2.client as glclient
 import keystoneclient.v3.client as ksclient
+from novaclient import client as nova_client
 
 from os_client_config import config as cloud_config
 
@@ -32,6 +33,10 @@ keystone = ksclient.Client(auth_url=env['OS_AUTH_URL'],
 glance_endpoint = keystone.service_catalog.url_for(service_type='image')
 glance = glclient.Client(glance_endpoint, token=keystone.auth_token)
 
+nova = nova_client.Client( 
+        version='2',
+        auth_token=keystone.auth_token,
+        auth_url=env['OS_AUTH_URL'])
 
 currentPath = os.path.dirname(os.path.realpath(__file__))
 
@@ -340,3 +345,17 @@ for image in ImageArray:
     os.remove(tmpLocation)
 
     print(imageName + " " + imageUrl + " " + checksum)
+
+
+# Cleaning: Delete unused archived images
+print('#############################')
+print('Delete Unused Archived Images')
+glanceImages = glance.images.list()
+#print(nova.servers.list(search_opts={'all_tenants':'True'}) )
+for glanceImage in glanceImages:
+    if "Archived" in glanceImage.name:
+        serverList = nova.servers.list(search_opts={'all_tenants':'True', 'image': glanceImage.id}) 
+        if not serverList:
+            glance.images.delete(glanceImage.id)
+            print("  Archived Image: %s with ID: %s deleted" % (glanceImage.name, glanceImage.id))
+
