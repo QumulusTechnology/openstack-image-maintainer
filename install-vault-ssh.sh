@@ -25,14 +25,6 @@ if [ ! -f /usr/local/bin/vault-ssh-helper ]; then
     chown root:root /usr/local/bin/vault-ssh-helper
 fi
 
-if [ ! -f /var/log/vault_ssh.log ]; then
-    touch /var/log/vault_ssh.log
-    chmod 0666 /var/log/vault_ssh.log
-    chown root:root /var/log/vault_ssh.log
-fi
-
-
-
 mkdir -p /etc/vault-ssh-helper.d/
 
 cat << EOF > /etc/vault-ssh-helper.d/config.hcl
