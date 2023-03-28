@@ -384,8 +384,9 @@ for image in ImageArray:
 # Cleaning: Delete unused archived images
 print('#############################')
 print('Delete Unused Archived Images')
+
 glanceImages = glance.images.list()
-#print(nova.servers.list(search_opts={'all_tenants':'True'}) )
+
 for glanceImage in glanceImages:
     if "Archived" in glanceImage.name:
         serverList = nova.servers.list(search_opts={'all_tenants':'True', 'image': glanceImage.id}) 
