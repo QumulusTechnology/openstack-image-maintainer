@@ -34,9 +34,11 @@ keystone = ksclient.Client(auth_url=env['OS_AUTH_URL'],
 glance_endpoint = keystone.service_catalog.url_for(service_type='image')
 glance = glclient.Client(glance_endpoint, token=keystone.auth_token)
 
+nova_endpoint = keystone.service_catalog.url_for(service_type='compute')
 nova = nova_client.Client( 
         version='2',
         auth_token=keystone.auth_token,
+        endpoint_override=nova_endpoint,
         auth_url=env['OS_AUTH_URL'])
 
 currentPath = os.path.dirname(os.path.realpath(__file__))
