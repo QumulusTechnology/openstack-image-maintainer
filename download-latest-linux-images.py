@@ -392,7 +392,6 @@ glanceImages = glance.images.list()
 for glanceImage in glanceImages:
     if "Archived" in glanceImage.name:
         serverList = nova.servers.list()
-        print(serverList)
         serverList = nova.servers.list(search_opts={'all_tenants':'True', 'image': glanceImage.id}) 
         if not serverList:
             glance.images.delete(glanceImage.id)
