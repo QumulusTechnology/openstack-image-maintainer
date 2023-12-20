@@ -20,7 +20,7 @@ if [ -z "$VAULT_ALLOWED_ROLES" ]; then
 fi
 
 if [ ! -f /usr/local/bin/vault-ssh-helper ]; then
-    curl -s -o /usr/local/bin/vault-ssh-helper https://qumulusglobalprod.blob.core.windows.net/public-files/vault-ssh-helper
+    curl -s -o /usr/local/bin/vault-ssh-helper https://qumuluspublic.blob.core.windows.net/qpc/vault-ssh-helper
     chmod 0755 /usr/local/bin/vault-ssh-helper
     chown root:root /usr/local/bin/vault-ssh-helper
 fi

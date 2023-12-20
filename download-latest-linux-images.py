@@ -12,11 +12,17 @@ import guestfs
 import sys
 from datetime import datetime
 import re
+from pathlib import Path
 
 from jsonpath_ng import jsonpath, parse
 from os import environ as env
 import glanceclient.v2.client as glclient
-import keystoneclient.v3.client as ksclient
+
+from keystoneauth1.identity import v3
+from keystoneauth1 import session
+from keystoneclient.v3 import client as ksclient
+
+#import keystoneclient.v3.client as ksclient
 from novaclient import client as nova_client
 
 from os_client_config import config as cloud_config
@@ -24,18 +30,20 @@ from os_client_config import config as cloud_config
 from openstackclient.common import clientmanager
 
 
-keystone = ksclient.Client(auth_url=env['OS_AUTH_URL'],
+keystone = ksclient.Client(auth_url=env['OS_AUTH_URL']+'/v3',
                            username=env['OS_USERNAME'],
                            password=env['OS_PASSWORD'],
                            tenant_name=env['OS_TENANT_NAME'],
-                           region_name=env['OS_REGION_NAME'])
+                           region_name=env['OS_REGION_NAME'],user_domain_id="default", project_domain_id="default",identity_api_version="3")
 
+
+#tenant_name=env['OS_TENANT_NAME'],
 
 glance_endpoint = keystone.service_catalog.url_for(service_type='image')
 glance = glclient.Client(glance_endpoint, token=keystone.auth_token)
 
 nova_endpoint = keystone.service_catalog.url_for(service_type='compute')
-nova = nova_client.Client( 
+nova = nova_client.Client(
         version='2',
         auth_token=keystone.auth_token,
         endpoint_override=nova_endpoint,
@@ -62,19 +70,23 @@ class Image(object):
 ImageArray: List[Image] = []
 
 
-ImageArray.append(Image("7", ImageType.centos))
-ImageArray.append(Image("8", ImageType.centos_stream))
-ImageArray.append(Image("9", ImageType.centos_stream))
-ImageArray.append(Image("36", ImageType.fedora))
-ImageArray.append(Image("37", ImageType.fedora))
-ImageArray.append(Image("38", ImageType.fedora))
-ImageArray.append(Image("stable", ImageType.fedora_core))
-ImageArray.append(Image("9", ImageType.debian))
-ImageArray.append(Image("10", ImageType.debian))
-ImageArray.append(Image("18.04-bionic", ImageType.ubuntu))
-ImageArray.append(Image("20.04-focal", ImageType.ubuntu))
-ImageArray.append(Image("22.04-jammy", ImageType.ubuntu))
-ImageArray.append(Image("22.10-kinetic", ImageType.ubuntu))
+# ImageArray.append(Image("7", ImageType.centos))
+# ImageArray.append(Image("8", ImageType.centos_stream))
+# ImageArray.append(Image("9", ImageType.centos_stream))
+# ImageArray.append(Image("37", ImageType.fedora))
+# ImageArray.append(Image("38", ImageType.fedora))
+# ImageArray.append(Image("39", ImageType.fedora))
+# ImageArray.append(Image("stable", ImageType.fedora_core))
+# ImageArray.append(Image("9", ImageType.debian))
+# ImageArray.append(Image("10", ImageType.debian))
+ImageArray.append(Image("11", ImageType.debian))
+ImageArray.append(Image("12", ImageType.debian))
+# ImageArray.append(Image("18.04-bionic", ImageType.ubuntu))
+# ImageArray.append(Image("20.04-focal", ImageType.ubuntu))
+# ImageArray.append(Image("22.04-jammy", ImageType.ubuntu))
+# ImageArray.append(Image("22.10-kinetic", ImageType.ubuntu))
+# ImageArray.append(Image("23.04-lunar", ImageType.ubuntu))
+# ImageArray.append(Image("23.19-mantic", ImageType.ubuntu))
 
 
 def get_image_path(url, startsWith, ext='qcow2', checksum="CHECKSUM", params={}):
@@ -192,8 +204,8 @@ for image in ImageArray:
     if image.imageType == ImageType.fedora:
         url = "https://fedora.mirrorservice.org/fedora/linux/releases/{}/Cloud/x86_64/images/".format(
             image.version)
-        startsWith = "https://fedora.mirrorservice.org/fedora/linux/releases/36/Cloud/x86_64/images/Fedora-Cloud-Base-{}".format(
-            image.version)
+        startsWith = "https://fedora.mirrorservice.org/fedora/linux/releases/{}/Cloud/x86_64/images/Fedora-Cloud-Base-{}".format(
+            image.version,image.version)
         imagePath = get_image_path(url, startsWith)
         imageUrl = imagePath[0]
         fileName = os.path.basename(imageUrl)
@@ -312,6 +324,7 @@ for image in ImageArray:
             # Unmount everything.
             g.sync()
             g.umount_all()
+            g = None
 
     existingId = ""
     glanceImages = glance.images.list()
@@ -319,10 +332,11 @@ for image in ImageArray:
         if glanceImage.name == imageName:
             existingId = glanceImage.id
 
+
     image = glance.images.create(
         name=imageName,
         is_public='True',
-        disk_format="qcow2",
+        disk_format="raw",
         container_format="bare",
         hw_qemu_guest_agent="yes",
         hw_rng_model="virtio",
@@ -331,7 +345,13 @@ for image in ImageArray:
 
     )
 
-    glance.images.upload(image.id, open(tmpLocation, 'rb'))
+    rawImageLocation="/tmp/" + Path(tmpLocation).stem + ".raw"
+    if os.path.exists(rawImageLocation):
+         os.remove(rawImageLocation)
+
+    os.system("qemu-img convert -f qcow2 -O raw {} {}".format(tmpLocation, rawImageLocation))
+
+    glance.images.upload(image.id, open(rawImageLocation, 'rb'))
 
     patchBody = [
         {
@@ -342,7 +362,7 @@ for image in ImageArray:
         {
             "op": "replace",
             "path": "/owner",
-            "value": "f658461a492f4d68846843779506a194"
+            "value": "f30e739bf3524d929fa75513b936f6d1"
         },
     ]
 
@@ -393,8 +413,7 @@ glanceImages = glance.images.list()
 
 for glanceImage in glanceImages:
     if "Archived" in glanceImage.name:
-        serverList = nova.servers.list(search_opts={'all_tenants':'True', 'image': glanceImage.id}) 
+        serverList = nova.servers.list(search_opts={'all_tenants':'True', 'image': glanceImage.id})
         if not serverList:
             glance.images.delete(glanceImage.id)
             print("  Archived Image: %s with ID: %s deleted" % (glanceImage.name, glanceImage.id))
-

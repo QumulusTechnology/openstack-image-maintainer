@@ -10,7 +10,9 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "justMyCode": true
+            "justMyCode": true,
+            "envFile": "/root/admin-rc.sh",
+            "sudo": true
         }
     ]
 }
