@@ -11,7 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "envFile": "/root/admin-openrc.env",
+            "envFile": "/root/test2.sh",
             "sudo": true
         }
     ]

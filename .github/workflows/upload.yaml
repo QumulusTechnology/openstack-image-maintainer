@@ -1,0 +1,68 @@
+name: Upload latest OS images to OpenStack
+
+on:
+  workflow_dispatch:
+    inputs:
+      auth_url:
+        required: true
+        type: string
+      username:
+        required: true
+        type: string
+      password:
+        required: true
+        type: string
+      project_domain_name:
+        required: false
+        default: 'Default'
+        type: string
+      user_domain_name:
+        required: false
+        default: 'Default'
+        type: string
+      project_name:
+        required: false
+        default: 'service'
+        type: string
+      options_json:
+        required: false
+        default: '{}'
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: '${{ github.event.inputs.auth_url }}'
+  cancel-in-progress: true
+
+jobs:
+  upload:
+    name: Upload latest OS images to OpenStack
+    runs-on:
+      group: prod
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Upload latest OS images to OpenStack
+        run: |
+          export ENABLE_VAULT_SSH=$(echo ${{ github.event.inputs.options_json }} | jq -r .enable_vault_ssh)
+          export DISABLE_CENTOS=$(echo ${{ github.event.inputs.options_json }} | jq -r .disable_centos)
+          export DISABLE_CENTOS_STREAM=$(echo ${{ github.event.inputs.options_json }} | jq -r .disable_centos_stream)
+          export DISABLE_FEDORA=$(echo ${{ github.event.inputs.options_json }} | jq -r .disable_fedora)
+          export DISABLE_FEDORA_CORE=$(echo ${{ github.event.inputs.options_json }} | jq -r .disable_fedora_core)
+          export DISABLE_DEBIAN=$(echo ${{ github.event.inputs.options_json }} | jq -r .disable_debian)
+          export DISABLE_UBUNTU=$(echo ${{ github.event.inputs.options_json }} | jq -r .disable_ubuntu)
+          export DISABLE_FREEBSD=$(echo ${{ github.event.inputs.options_json }} | jq -r .disable_freebsd)
+          export DISABLE_ROCKY=$(echo ${{ github.event.inputs.options_json }} | jq -r .disable_rocky)
+          export DISABLE_ARCH=$(echo ${{ github.event.inputs.options_json }} | jq -r .disable_arch)
+          export DISABLE_CIRROS=$(echo ${{ github.event.inputs.options_json }} | jq -r .disable_cirros)
+          export OS_AUTH_URL=${{ github.event.inputs.auth_url }}
+          export OS_USERNAME=${{ github.event.inputs.username }}
+          export OS_USER_DOMAIN_NAME=${{ github.event.inputs.user_domain_name }}
+          export OS_PROJECT_DOMAIN_NAME=${{ github.event.inputs.project_domain_name }}
+          PASSWORD=$(cat $GITHUB_EVENT_PATH | jq -r '.inputs.password' )
+          echo "::add-mask::$PASSWORD"
+          export OS_PASSWORD=$PASSWORD
+          python3 -u download-latest-linux-images.py
