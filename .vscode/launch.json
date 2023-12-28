@@ -11,8 +11,10 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "envFile": "/root/test2.sh",
-            "sudo": true
+            "sudo": true,
+            "env": {
+                "LIBGUESTFS_BACKEND11": "direct"
+            },
         }
     ]
 }

@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 
+import logging
 from tabnanny import check
 import requests
 from bs4 import BeautifulSoup
 from typing import List
-from enum import Enum
-import os
-from tempfile import NamedTemporaryFile, TemporaryDirectory
-from pathlib import Path
+from tempfile import TemporaryDirectory
 import json
 import subprocess
 import guestfs
@@ -19,100 +17,66 @@ import urllib.request
 import time
 import subprocess
 from minio import Minio
-from jsonpath_ng import jsonpath, parse
-from os import environ as env
+from jsonpath_ng import parse
 import glanceclient.v2.client as glclient
 from keystoneauth1.identity import v3
 from keystoneauth1 import session
 from keystoneclient.v3 import client
 from cinderclient import client as cinder_client
 from novaclient import client as nova_client
+from functions import *
+from classes import *
+import string
+import os
+import sys
 
-def get_env_bool(env_var, default):
-    if env_var in os.environ:
-        env=env.get(env_var)
-        if env=="true" or env=="True":
-            return True
-        elif env=="false" or env=="False":
-            return False
-        else:
-            return default
-    else:
-        return default
 
-enable_vault_ssh = bool(get_env_bool('ENABLE_VAULT_SSH', False))
-minio_client = Minio("s3api.qumulus.io")
+os_vars = get_os_vars()
+config = get_config()
 
-auth_url = env['OS_AUTH_URL']+'/v3'
-username = env['OS_USERNAME']
-password = env['OS_PASSWORD']
-user_domain_id = env['OS_USER_DOMAIN_NAME'].lower()
-project_domain_id = env['OS_PROJECT_DOMAIN_NAME'].lower()
+log_level=config['logging_level'].upper()
+minio_url=config['minio_url']
+enable_vault_ssh = config['enable_vault_ssh']
+force_upload = config['force_upload']
+enable_centos = config['enable_centos']
+enable_centos_stream = config['enable_centos_stream']
+enable_fedora = config['enable_fedora']
+enable_fedora_core = config['enable_fedora_core']
+enable_debian = config['enable_debian']
+enable_ubuntu = config['enable_ubuntu']
+enable_freebsd = config['enable_freebsd']
+enable_rocky = config['enable_rocky']
+enable_arch = config['enable_arch']
+enable_cirros = config['enable_cirros']
+enable_windows = config['enable_windows']
+enable_windows_pre_sysprep = config['enable_windows_pre_sysprep']
+enable_windows_server = config['enable_windows_server']
+enable_windows_server_pre_sysprep = config['enable_windows_server_pre_sysprep']
+
+logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s',  level=log_level)
+
+auth_url = os_vars['OS_AUTH_URL']+'/v3'
+username = os_vars['OS_USERNAME']
+password = os_vars['OS_PASSWORD']
+user_domain_id = os_vars['OS_USER_DOMAIN_NAME'].lower()
+project_domain_id = os_vars['OS_PROJECT_DOMAIN_NAME'].lower()
 
 auth = v3.Password(auth_url=auth_url,
                            username=username,
                            password=password,
                            project_name="service",
                            user_domain_id=user_domain_id, project_domain_id=project_domain_id)
+
 sess = session.Session(auth=auth)
 ks = client.Client(session=sess)
-service_account_id = ks.projects.find(name="service").id
-
-
 glance = glclient.Client(session=sess)
 cinder = cinder_client.Client(3,session=sess)
 nova = nova_client.Client(session=sess,
         version='2.37')
 
+minio_client = Minio(minio_url)
+service_account_id = ks.projects.find(name="service").id
 currentPath = os.path.dirname(os.path.realpath(__file__))
-
-
-class ImageType(Enum):
-    centos_stream = 1
-    fedora = 2
-    fedora_core = 3
-    debian = 4
-    ubuntu = 5
-    centos = 7,
-    freebsd = 8,
-    rocky = 9,
-    arch = 10,
-    cirros = 11,
-    windows_desktop = 12,
-    windows_server = 13,
-
-class DownloadProtocol(Enum):
-    http = 1
-    minio = 2
-
-class CompressedFileChecksum(Enum):
-    compressed_file_checksum = 1
-    decompressed_file_checksum = 2
-
-class BootMethod(Enum):
-    bios = 1
-    uefi = 2
-
-class InstanceFlavor(Enum):
-    t1_small = 1
-    t1_medium = 2
-    t1_large = 3
-
-class Image(object):
-    def __init__(self, versionNumber, versionName, imageType: ImageType):
-        self.versionNumber = versionNumber
-        self.versionName = versionName
-        self.imageType = imageType
-
-class ImageMetadata(object):
-    def __init__(self, username, shaSumAlgotrithm, distro, image_name, min_ram, instance_flavor: InstanceFlavor):
-        self.username = username
-        self.shaSumAlgotrithm = shaSumAlgotrithm
-        self.distro = distro
-        self.image_name = image_name
-        self.min_ram = min_ram
-        self.instance_flavor = instance_flavor
-
 
 flavor_names = set(item.name for item in InstanceFlavor)
 flavor_ids = {}
@@ -136,148 +100,58 @@ ImageMetadataArray[ImageType.cirros] = ImageMetadata("cirros","md5sum","cirros",
 ImageMetadataArray[ImageType.windows_desktop] = ImageMetadata("admin","sha256sum","windows","Windows",4096,InstanceFlavor.t1_large)
 ImageMetadataArray[ImageType.windows_server] = ImageMetadata("Administrator","sha256sum","windows","WindowsServers",2048,InstanceFlavor.t1_medium)
 
-force_upload = get_env_bool('FORCE_UPLOAD', False)
-disable_centos = get_env_bool('ENABLE_CENTOS', False)
-disable_centos_stream = get_env_bool('ENABLE_CENTOS_STREAM', False)
-disable_fedora = get_env_bool('ENABLE_FEDORA', False)
-disable_fedora_core = get_env_bool('ENABLE_FEDORA_CORE', False)
-disable_debian = get_env_bool('ENABLE_DEBIAN', False)
-disable_ubuntu = get_env_bool('ENABLE_UBUNTU', False)
-disable_freebsd = get_env_bool('ENABLE_FREEBSD', False)
-disable_rocky = get_env_bool('ENABLE_ROCKY', False)
-disable_arch = get_env_bool('ENABLE_ARCH', False)
-disable_cirros = get_env_bool('ENABLE_CIRROS', False)
-enable_windows = get_env_bool('ENABLE_WINDOWS', True)
-enable_windows_pre_sysprep = get_env_bool('ENABLE_WINDOWS_PRE_SYSPREP', True)
-enable_windows_server = get_env_bool('ENABLE_WINDOWS_SERVER', True)
-enable_windows_server_pre_sysprep = get_env_bool('ENABLE_WINDOWS_SERVER_PRE_SYSPREP', True)
-
 ImageArray: List[Image] = []
 
-if not disable_centos:
+if enable_centos:
     ImageArray.append(Image("7", None, ImageType.centos))
-# if not disable_centos_stream:
-#     ImageArray.append(Image("8", None, ImageType.centos_stream))
-#     ImageArray.append(Image("9", None, ImageType.centos_stream))
-# if not disable_fedora:
-#     ImageArray.append(Image("37", None, ImageType.fedora))
-#     ImageArray.append(Image("38", None, ImageType.fedora))
-#     ImageArray.append(Image("39", None, ImageType.fedora))
-# if not disable_fedora_core:
-#     ImageArray.append(Image(None, "stable", ImageType.fedora_core))
-#     ImageArray.append(Image(None, "testing", ImageType.fedora_core))
-#     ImageArray.append(Image(None, "next", ImageType.fedora_core))
-# if not disable_debian:
-#     ImageArray.append(Image("10", "Buster", ImageType.debian))
-#     ImageArray.append(Image("11", "Bullseye", ImageType.debian))
-#     ImageArray.append(Image("12", "Bookworm", ImageType.debian))
-#     ImageArray.append(Image("13", "Trixie", ImageType.debian))
-# if not disable_ubuntu:
-#     ImageArray.append(Image("18.04", "Bionic", ImageType.ubuntu))
-#     ImageArray.append(Image("20.04", "Focal", ImageType.ubuntu))
-#     ImageArray.append(Image("22.04", "Jammy", ImageType.ubuntu))
-#     ImageArray.append(Image("23.04", "Lunar",  ImageType.ubuntu))
-#     ImageArray.append(Image("22.10", "Kinetic", ImageType.ubuntu))
-#     ImageArray.append(Image("23.10" , "Mantic", ImageType.ubuntu))
-# if not disable_rocky:
-#     ImageArray.append(Image("8", None, ImageType.rocky))
-#     ImageArray.append(Image("9", None, ImageType.rocky))
-# if not disable_arch:
-#     ImageArray.append(Image(None, "latest", ImageType.arch))
-# if not disable_freebsd:
-#     ImageArray.append(Image("12.4", None, ImageType.freebsd))
-#     ImageArray.append(Image("13.2", None, ImageType.freebsd))
-#     ImageArray.append(Image("14.0", None, ImageType.freebsd))
-# if not disable_cirros:
-#     ImageArray.append(Image("0.6.2", None, ImageType.cirros))
-# if enable_windows:
-#     ImageArray.append(Image("windows-11-22h2", "Windows_11_22H2", ImageType.windows_desktop))
-# if enable_windows_pre_sysprep:
-#     ImageArray.append(Image("windows-11-22h2-pre-sysprep", "Windows_11_22H2_PreSysprep", ImageType.windows_desktop))
-# if enable_windows_server:
-#     ImageArray.append(Image("windows-server-2022-datacentre-core", "Win_Server_Dc_2022_Core", ImageType.windows_server))
-#     ImageArray.append(Image("windows-server-2022-datacentre-desktop", "Win_Server_Dc_2022_Desktop", ImageType.windows_server))
-#     ImageArray.append(Image("windows-server-2022-standard-core", "Win_Server_Std_2022_Core", ImageType.windows_server))
-#     ImageArray.append(Image("windows-server-2022-standard-desktop", "Win_Server_Std_2022_Core", ImageType.windows_server))
+if enable_centos_stream:
+    ImageArray.append(Image("8", None, ImageType.centos_stream))
+    ImageArray.append(Image("9", None, ImageType.centos_stream))
+if enable_fedora:
+    ImageArray.append(Image("37", None, ImageType.fedora))
+    ImageArray.append(Image("38", None, ImageType.fedora))
+    ImageArray.append(Image("39", None, ImageType.fedora))
+if enable_fedora_core:
+    ImageArray.append(Image(None, "stable", ImageType.fedora_core))
+    ImageArray.append(Image(None, "testing", ImageType.fedora_core))
+    ImageArray.append(Image(None, "next", ImageType.fedora_core))
+if enable_debian:
+    ImageArray.append(Image("10", "Buster", ImageType.debian))
+    ImageArray.append(Image("11", "Bullseye", ImageType.debian))
+    ImageArray.append(Image("12", "Bookworm", ImageType.debian))
+    ImageArray.append(Image("13", "Trixie", ImageType.debian))
+if enable_ubuntu:
+    ImageArray.append(Image("18.04", "Bionic", ImageType.ubuntu))
+    ImageArray.append(Image("20.04", "Focal", ImageType.ubuntu))
+    ImageArray.append(Image("22.04", "Jammy", ImageType.ubuntu))
+    ImageArray.append(Image("23.04", "Lunar",  ImageType.ubuntu))
+    ImageArray.append(Image("22.10", "Kinetic", ImageType.ubuntu))
+    ImageArray.append(Image("23.10" , "Mantic", ImageType.ubuntu))
+if enable_rocky:
+    ImageArray.append(Image("8", None, ImageType.rocky))
+    ImageArray.append(Image("9", None, ImageType.rocky))
+if enable_arch:
+    ImageArray.append(Image(None, "latest", ImageType.arch))
+if enable_freebsd:
+    ImageArray.append(Image("12.4", None, ImageType.freebsd))
+    ImageArray.append(Image("13.2", None, ImageType.freebsd))
+    ImageArray.append(Image("14.0", None, ImageType.freebsd))
+if enable_cirros:
+    ImageArray.append(Image("0.6.2", None, ImageType.cirros))
+if enable_windows:
+    ImageArray.append(Image("windows-11-22h2", "Windows-11-22H2", ImageType.windows_desktop))
+if enable_windows_pre_sysprep:
+    ImageArray.append(Image("windows-11-22h2-pre-sysprep", "Windows-11-22H2-PreSysprep", ImageType.windows_desktop))
+if enable_windows_server:
+    ImageArray.append(Image("windows-server-2022-datacenter-core", "Windows-Server-Datacenter-2022-Core", ImageType.windows_server))
+    ImageArray.append(Image("windows-server-2022-datacenter-desktop", "Windows-Server-Datacenter-2022-Desktop", ImageType.windows_server))
+    ImageArray.append(Image("windows-server-2022-standard-core", "Windows-Server-Standard-2022-Core", ImageType.windows_server))
+    ImageArray.append(Image("windows-server-2022-standard-desktop", "Windows-Server-Standard-2022-Desktop", ImageType.windows_server))
 if enable_windows_server_pre_sysprep:
-    ImageArray.append(Image("windows-server-2022-datacentre-core-pre-sysprep", "Win_Server_Dc_2022_Core_PreSysprep", ImageType.windows_server))
-    ImageArray.append(Image("windows-server-2022-datacentre-desktop-pre-sysprep", "Win_Server_Dc_2022_Desktop_PreSysprep", ImageType.windows_server))
-    ImageArray.append(Image("windows-server-2022-standard-core-pre-sysprep", "Win_Server_Std_2022_Core_PreSysprep", ImageType.windows_server))
-    ImageArray.append(Image("windows-server-2022-standard-desktop-pre-sysprep", "Win_Server_Std_2022_Core_PreSysprep", ImageType.windows_server))
-
-def get_image_path(url, startsWith, ext='qcow2', checksum="CHECKSUM", params={}):
-    response = requests.get(url, params=params)
-    if response.ok:
-        response_text = response.text
-    else:
-        raise Exception(response.raise_for_status())
-    soup = BeautifulSoup(response_text, 'html.parser')
-    images = [url + node.get('href') for node in soup.find_all('a')
-              if node.get('href').endswith(ext)]
-
-    checksum_url = [url + node.get('href') for node in soup.find_all('a')
-                    if node.get('href').endswith(checksum)][0]
-    latestImage = ""
-    for image in images:
-        if (image.startswith(startsWith)):
-            latestImage = image
-    return [latestImage, checksum_url]
-
-
-def get_checksum(checksum_url, fileName, imageType: ImageType):
-    checksum = ""
-    response_text = ""
-    if imageType == ImageType.windows_desktop or imageType == ImageType.windows_server:
-        with NamedTemporaryFile() as temp_file:
-            minio_client.fget_object("qcp-images", checksum_url, temp_file.name)
-            with open(temp_file.name) as f:
-                checksum = f.read().strip()
-    else:
-        response = requests.get(checksum_url)
-        if response.ok:
-            response_text = response.text
-        else:
-            raise Exception(response.raise_for_status())
-
-    if (imageType == ImageType.centos_stream or ImageType.fedora):
-        for line in response_text.split("\n"):
-            lineArray = line.split(" ")
-            if (len(lineArray) > 3 and lineArray[1] == "(" + fileName + ")"):
-                checksum = lineArray[3]
-    if (imageType == ImageType.debian):
-        for line in response_text.split("\n"):
-            lineArray = line.split(" ")
-            if (len(lineArray) == 3 and lineArray[2] == fileName):
-                checksum = lineArray[0]
-    if (imageType == ImageType.ubuntu):
-        for line in response_text.split("\n"):
-            lineArray = line.split(" ")
-            if (len(lineArray) == 2 and lineArray[1] == "*" + fileName):
-                checksum = lineArray[0]
-    if (imageType == ImageType.centos):
-        for line in response_text.split("\n"):
-            lineArray = line.split("  ")
-            if (len(lineArray) == 2 and lineArray[1] == fileName):
-                checksum = lineArray[0]
-    if (imageType == ImageType.rocky):
-        line = response_text.split("\n")[1]
-        lineArray = line.split("=")
-        checksum = lineArray[1].strip()
-    if (imageType == ImageType.arch):
-        line = response_text.split("\n")[0]
-        lineArray = line.split(" ")
-        checksum = lineArray[0].strip()
-    if (imageType == ImageType.freebsd):
-        for line in response_text.split("\n"):
-            if fileName in line:
-                lineArray = line.split("=")
-                checksum = lineArray[1].strip()
-    if (imageType == ImageType.cirros):
-        for line in response_text.split("\n"):
-            if fileName in line:
-                lineArray = line.split(" ")
-                checksum = lineArray[0].strip()
-    return checksum
+    ImageArray.append(Image("windows-server-2022-datacenter-core-pre-sysprep", "Windows-Server-Datacenter-2022-Core-PreSysprep", ImageType.windows_server))
+    ImageArray.append(Image("windows-server-2022-datacenter-desktop-pre-sysprep", "Windows-Server-Datacenter-2022-Desktop-PreSysprep", ImageType.windows_server))
+    ImageArray.append(Image("windows-server-2022-standard-core-pre-sysprep", "Windows-Server-Standard-2022-Core-PreSysprep", ImageType.windows_server))
+    ImageArray.append(Image("windows-server-2022-standard-desktop-pre-sysprep", "Windows-Server-Standard-2022-Desktop-PreSysprep", ImageType.windows_server))
 
 for image in ImageArray:
     imageUrl = ""
@@ -294,18 +168,33 @@ for image in ImageArray:
     rng_enabled = True
     hw_machine_type = None
     flavor_id = flavor_ids[ImageMetadataArray[image.imageType].instance_flavor]
+    image_identifier = ImageMetadataArray[image.imageType].image_name.lower()
+
+    if image.imageType == ImageType.windows_desktop or image.imageType == ImageType.windows_server:
+       image_identifier = image.versionNumber
+    elif image.versionNumber is not None:
+        image_identifier = image_identifier + "-" + image.versionNumber
+    else:
+        image_identifier = image_identifier + "-" + image.versionName.lower()
+
+    logging.info("{}: processing image".format(image_identifier))
 
     if image.imageType == ImageType.arch:
         imageUrl = "https://mirrors.n-ix.net/archlinux/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"
         fileName = os.path.basename(imageUrl)
         checksumUrl="https://mirrors.n-ix.net/archlinux/images/latest/Arch-Linux-x86_64-cloudimg.qcow2.SHA256"
-        checksum = get_checksum(checksumUrl, fileName, image.imageType)
+        checksum = get_checksum(checksumUrl, fileName, image.imageType,image_identifier)
+        if checksum == "error":
+            continue
 
-        response = requests.get("https://mirrors.n-ix.net/archlinux/images/latest/", params={})
-        if response.ok:
-            response_text = response.text
-        else:
-            raise Exception(response.raise_for_status())
+        response = url_get("https://mirrors.n-ix.net/archlinux/images/latest/")
+        if not response.ok:
+            logging.info("{}: failed to download {} - error: {}".format(image_identifier,url,response.reason))
+            continue
+        response_text=response.text
+        response.close()
+        response = None
+
         soup = BeautifulSoup(response_text, 'html.parser')
         imageVersionArray = soup.find_all("a")[1].next_element.split("-")[4].split(".")
         os_version_full = imageVersionArray[0] + "." + imageVersionArray[1]
@@ -314,21 +203,27 @@ for image in ImageArray:
         imageUrl = "https://download.freebsd.org/releases/VM-IMAGES/{}-RELEASE/amd64/Latest/FreeBSD-{}-RELEASE-amd64.qcow2.xz".format(image.versionNumber, image.versionNumber)
         fileName = os.path.basename(imageUrl)
         checksumUrl="https://download.freebsd.org/releases/VM-IMAGES/{}-RELEASE/amd64/Latest/CHECKSUM.SHA512".format(image.versionNumber)
-        checksum = get_checksum(checksumUrl, fileName, image.imageType)
+        checksum = get_checksum(checksumUrl, fileName, image.imageType,image_identifier)
+        if checksum == "error":
+            continue
         customise_os = False
 
     if image.imageType == ImageType.rocky:
         imageUrl = "https://mirror.netzwerge.de/rocky-linux/{}/images/x86_64/Rocky-{}-GenericCloud-Base.latest.x86_64.qcow2".format(image.versionNumber, image.versionNumber)
         fileName = os.path.basename(imageUrl)
         checksumUrl="https://mirror.netzwerge.de/rocky-linux/{}/images/x86_64/Rocky-{}-GenericCloud-Base.latest.x86_64.qcow2.CHECKSUM".format(image.versionNumber, image.versionNumber)
-        checksum = get_checksum(checksumUrl, fileName, image.imageType)
+        checksum = get_checksum(checksumUrl, fileName, image.imageType,image_identifier)
+        if checksum == "error":
+            continue
 
 
     if image.imageType == ImageType.cirros:
         imageUrl = "https://download.cirros-cloud.net/{}/cirros-{}-x86_64-disk.img".format(image.versionNumber, image.versionNumber)
         fileName = os.path.basename(imageUrl)
         checksumUrl="https://download.cirros-cloud.net/{}/MD5SUMS".format(image.versionNumber, image.versionNumber)
-        checksum = get_checksum(checksumUrl, fileName, image.imageType)
+        checksum = get_checksum(checksumUrl, fileName, image.imageType,image_identifier)
+        if checksum == "error":
+            continue
         customise_os = False
 
     if image.imageType == ImageType.centos_stream:
@@ -336,24 +231,31 @@ for image in ImageArray:
             image.versionNumber)
         startsWith = "https://cloud.centos.org/centos/{}-stream/x86_64/images/CentOS-Stream-GenericCloud-{}".format(
             image.versionNumber, image.versionNumber)
-        imagePath = get_image_path(url, startsWith)
+        imagePath = get_image_path(url, startsWith,image_identifier)
+        if imagePath == "error":
+            continue
         imageUrl = imagePath[0]
         fileName = os.path.basename(imageUrl)
-        checksum = get_checksum(imagePath[1], fileName, image.imageType)
+        checksum = get_checksum(imagePath[1], fileName, image.imageType,image_identifier)
+        if checksum == "error":
+            continue
 
 
     if image.imageType == ImageType.centos:
         url = "https://cloud.centos.org/centos/{}/images/image-index".format(image.versionNumber)
-        response = requests.get(url)
-        if response.ok:
-            response_text = response.text
-        else:
-            raise Exception(response.raise_for_status())
-        text1 = "^file\=CentOS-{}-x86_64-GenericCloud-\d+.qcow2.xz".format(image.versionNumber)
+        response = url_get(url)
+        if not response.ok:
+            logging.info("{}: failed to download {} - error: {}".format(image_identifier,url,response.reason))
+            continue
+        response_text = response.text
+        response.close()
+        response = None
+
+        text1 = r"^file\=CentOS-{}-x86_64-GenericCloud-\d+.qcow2.xz".format(image.versionNumber)
 
         pattern1 = re.compile(text1)
-        pattern2 = re.compile("^checksum\=")
-        pattern3 = re.compile("^\[CentOS")
+        pattern2 = re.compile(r"^checksum\=")
+        pattern3 = re.compile(r"^\[CentOS")
 
         latest=False
         fileName=""
@@ -384,20 +286,27 @@ for image in ImageArray:
             image.versionNumber)
         startsWith = "https://fedora.mirrorservice.org/fedora/linux/releases/{}/Cloud/x86_64/images/Fedora-Cloud-Base-{}".format(
             image.versionNumber,image.versionNumber)
-        imagePath = get_image_path(url, startsWith)
+        imagePath = get_image_path(url, startsWith, image_identifier)
+        if imagePath == "error":
+            continue
         imageUrl = imagePath[0]
         fileName = os.path.basename(imageUrl)
-        checksum = get_checksum(imagePath[1], fileName, image.imageType)
+        checksum = get_checksum(imagePath[1], fileName, image.imageType,image_identifier)
+        if checksum == "error":
+            continue
 
     if image.imageType == ImageType.fedora_core:
         url = "https://builds.coreos.fedoraproject.org/streams/{}.json".format(
             image.versionName)
-        response = requests.get(url)
-        if response.ok:
-            response_text = response.text
-        else:
-            raise Exception(response.raise_for_status())
-        json_data = json.loads(response.content)
+        response = url_get(url)
+        if not response.ok:
+            logging.info("{}: failed to download {} - error: {}".format(image_identifier,url,response.reason))
+            continue
+        response_content = response.content
+        response.close()
+        response = None
+
+        json_data = json.loads(response_content)
 
         jsonpath_expression = parse(
             '$.architectures.x86_64.artifacts.openstack.release')
@@ -414,24 +323,31 @@ for image in ImageArray:
             '$.architectures.x86_64.artifacts.openstack.formats["qcow2.xz"].disk["sha256"]')
         match = jsonpath_expression.find(json_data)
         checksum = match[0].value
+        customise_os = False
 
     if image.imageType == ImageType.debian:
         imageUrl = "https://cloud.debian.org/images/cloud/{}/daily/latest/debian-{}-genericcloud-amd64-daily.qcow2".format(image.versionName.lower(), image.versionNumber)
         fileName = os.path.basename(imageUrl)
         checksum = get_checksum(
-            "https://cloud.debian.org/images/cloud/{}/daily/latest/SHA512SUMS".format(image.versionName.lower()), fileName, image.imageType)
+            "https://cloud.debian.org/images/cloud/{}/daily/latest/SHA512SUMS".format(image.versionName.lower()), fileName, image.imageType,image_identifier)
+        if checksum == "error":
+            continue
 
     if image.imageType == ImageType.ubuntu:
         imageUrl = "https://cloud-images.ubuntu.com/{}/current/{}-server-cloudimg-amd64.img".format(image.versionName.lower(), image.versionName.lower())
         fileName = os.path.basename(imageUrl)
         checksum = get_checksum(
-            "https://cloud-images.ubuntu.com/{}/current/SHA256SUMS".format(image.versionName.lower()), fileName, image.imageType)
+            "https://cloud-images.ubuntu.com/{}/current/SHA256SUMS".format(image.versionName.lower()), fileName, image.imageType,image_identifier)
+        if checksum == "error":
+            continue
 
     if image.imageType == ImageType.windows_desktop or image.imageType == ImageType.windows_server:
         imageUrl = "{}.qcow2.gz".format(image.versionName)
         fileName = imageUrl
         checksumUrl = "{}.qcow2.SHA256SUM".format(image.versionName)
-        checksum = get_checksum(checksumUrl,None, image.imageType)
+        checksum = get_checksum(checksumUrl,None, image.imageType,image_identifier)
+        if checksum == "error1":
+            continue
         download_protocol = DownloadProtocol.minio
         compressed_file_checksum = CompressedFileChecksum.decompressed_file_checksum
         customise_os = False
@@ -441,35 +357,37 @@ for image in ImageArray:
         tpm_enabled = True
         hw_machine_type = "q35"
 
-    image_identifier = ImageMetadataArray[image.imageType].image_name.lower()
-
-    if image.imageType == ImageType.windows_desktop or image.imageType == ImageType.windows_server:
-       image_identifier = image.versionNumber
-    elif image.versionNumber is not None:
-        image_identifier = image_identifier + "-" + image.versionNumber
-    else:
-        image_identifier = image_identifier + "-" + image.versionName.lower()
-
     existInGlance = False
     duplicateImages=[]
     for glanceImage in glance.images.list():
         if "original_identifier" in glanceImage:
             if glanceImage["original_identifier"] == image_identifier:
-                if glanceImage["original_hash"] and glanceImage["status"] == "active":
+                if glanceImage["original_hash"] == checksum and glanceImage["status"] == "active":
                     existInGlance = True
-                else:
+                elif not glanceImage.name.endswith("(Archived)"):
                     duplicateImages.append(glanceImage)
 
     if not existInGlance or force_upload:
-        print("downloading image {}".format(imageUrl))
+        logging.info("{}: downloading from {} via method {}".format(image_identifier, imageUrl, download_protocol.name))
         temp_folder = TemporaryDirectory()
         tmpLocation = os.path.join(temp_folder.name, fileName)
 
-        if download_protocol == DownloadProtocol.minio:
-            minio_client.fget_object("qcp-images", imageUrl, tmpLocation)
-        elif download_protocol == DownloadProtocol.http:
-            urllib.request.urlretrieve(imageUrl, tmpLocation)
+        remaining_download_tries = 5
+        download_success=False
+        while remaining_download_tries > 0 and not download_success:
+            try:
+                if download_protocol == DownloadProtocol.minio:
+                    minio_client.fget_object("qcp-images", imageUrl, tmpLocation)
+                    download_success=True
+                elif download_protocol == DownloadProtocol.http:
+                    urllib.request.urlretrieve(imageUrl, tmpLocation)
+                    download_success=True
+            except Exception as X:
+                logging.error("{}: error downloading from {} via method {} on trial no: {} - error: {}".format(image_identifier, imageUrl, download_protocol.name, str(6 - remaining_download_tries),X))
+                remaining_download_tries = remaining_download_tries - 1
 
+        if not download_success:
+            continue
         shaAlgorithm=ImageMetadataArray[image.imageType].shaSumAlgotrithm
         shaSum = ""
         shaSumOutput = ""
@@ -510,36 +428,21 @@ for image in ImageArray:
         if image.imageType != ImageType.cirros and min_disk < 5:
             min_disk=5
 
-        rawImageLocation="/tmp/" + Path(tmpLocation).stem + ".raw"
-        if os.path.exists(rawImageLocation):
-            os.remove(rawImageLocation)
-
-        os.system("qemu-img convert -f {} -O raw {} {}".format(file_format, tmpLocation, rawImageLocation))
-        os.remove(tmpLocation)
-        tmpLocation = rawImageLocation
-
         if enable_vault_ssh and customise_os:
-            print("adding vault-ssh to image: {} {} {}".format(ImageMetadataArray[image.imageType].image_name, image.versionNumber, image.versionName))
+            os.environ["LIBGUESTFS_BACKEND"] = "direct"
+            logging.info("{}: customising OS".format(image_identifier))
             g = guestfs.GuestFS(python_return_dict=True)
             g.add_drive_opts(tmpLocation, readonly=0)
             g.launch()
             roots = g.inspect_os()
             if len(roots) == 0:
-                print("inspect_vm: no operating systems found", file=sys.stderr)
+                logging.error("inspect_vm: no operating systems found")
                 sys.exit(1)
 
             for root in roots:
-                print("Root device: %s" % root)
 
                 major_version=g.inspect_get_major_version(root)
                 minor_version=g.inspect_get_minor_version(root)
-
-                print("  Product name: %s" % (g.inspect_get_product_name(root)))
-                print("  Version:      %d.%d" %
-                    (major_version,
-                    minor_version))
-                print("  Type:         %s" % (g.inspect_get_type(root)))
-                print("  Distro:       %s" % (g.inspect_get_distro(root)))
 
                 if ImageType != ImageType.arch:
                     os_version_full="%d.%d" % (major_version,minor_version)
@@ -549,7 +452,7 @@ for image in ImageArray:
                     try:
                         g.mount(mp, device)
                     except RuntimeError as msg:
-                        print("%s (ignored)" % msg)
+                        logging.warning("%s (ignored)" % msg)
 
                 remoteDir = "/var/lib/cloud/scripts/per-once"
                 g.mkdir_p(remoteDir)
@@ -578,7 +481,7 @@ for image in ImageArray:
 
         mapping = {}
         mapping["name"] = image_name
-        mapping["disk_format"] = "raw"
+        mapping["disk_format"] = file_format
         mapping["container_format"] = "bare"
         mapping["hw_qemu_guest_agent"] = "yes"
         mapping["hw_rng_model"] = "virtio"
@@ -598,7 +501,6 @@ for image in ImageArray:
         mapping["hw_cdom_bus"] = "sata"
         mapping["visibility"] = "public"
 
-
         if boot_method == BootMethod.uefi:
             mapping["hw_firmware_type"] = "uefi"
 
@@ -608,10 +510,9 @@ for image in ImageArray:
         if hw_machine_type is not None:
             mapping["hw_machine_type"] = hw_machine_type
 
-
         glance_image = glance.images.create(**mapping)
 
-        print("uploading image to glance: {}".format(image_identifier))
+        logging.info("{}: uploading image to glance".format(image_identifier))
         glance.images.upload(glance_image.id, open(tmpLocation, 'rb'))
         temp_folder.cleanup()
 
@@ -631,28 +532,35 @@ for image in ImageArray:
                 }
             ]
             glance.images._send_image_update_request(
-                myimage_id=image.id,
+                image_id=myimage.id,
                 patch_body=patchBody,
             )
 
-        print("booting server to warm cache: {}".format(image_identifier))
+        logging.info("{}: booting server to warm cache".format(image_identifier))
         server=nova.servers.create(image_name,glance_image.id,flavor_id,nics="none")
         while server.status=="BUILD":
             time.sleep(3)
             server=nova.servers.get(server.id)
         nova.servers.delete(server.id)
+        logging.info("{}: server created".format(image_identifier))
+
+        logging.info("{}: creating volume to warm cache".format(image_identifier))
+        volume = cinder.volumes.create(size=min_disk,imageRef=glance_image.id,name=image_name)
+        while volume.status!="available":
+            time.sleep(3)
+            volume=cinder.volumes.get(volume.id)
+        cinder.volumes.delete(volume.id)
+        logging.info("{}: volume created".format(image_identifier))
     else:
-        print("skipping image as glance contains identical checksum: {}".format(image_identifier))
+        logging.info("{}: skipping image as glance contains identical checksum".format(image_identifier))
 
 # Cleaning: Delete unused archived images
-print('#############################')
-print('Delete Unused Archived Images')
-
+logging.info('deleting unused archive images')
 glanceImages = glance.images.list()
-
 for myimage in glanceImages:
-    if myimage.name.endswith("(Archived)") and myimage.owner == service_account_id:
-        serverList = nova.servers.list(search_opts={'all_tenants':'True', 'image': myimage.id})
-        if not serverList:
-            glance.images.delete(myimage.id)
-            print("  Archived Image: %s with ID: %s deleted" % (myimage.name, myimage.id))
+    if "original_identifier" in myimage:
+        if myimage.name.endswith("(Archived)") and myimage.owner == service_account_id:
+            serverList = nova.servers.list(search_opts={'all_tenants':'True', 'image': myimage.id})
+            if not serverList:
+                glance.images.delete(myimage.id)
+                logging.info("{}: archived image {} with ID: {} deleted".format(myimage["original_identifier"], myimage.name, myimage.id))

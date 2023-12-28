@@ -1,5 +1,4 @@
 beautifulsoup4==4.12.2
-guestfs==1.40.2
 jsonpath_ng==1.6.0
 keystoneauth1==5.4.0
 minio==7.2.1

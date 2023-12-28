@@ -1,0 +1,20 @@
+enable_vault_ssh: false
+force_upload: false
+logging_level: INFO
+minio_url: s3api.qumulus.io
+
+enable_centos: true
+enable_centos_stream: true
+enable_fedora: true
+enable_fedora_core: true
+enable_debian: true
+enable_ubuntu: true
+enable_freebsd: true
+enable_rocky: true
+enable_arch: true
+enable_cirros: true
+
+enable_windows: false
+enable_windows_pre_sysprep: false
+enable_windows_server: false
+enable_windows_server_pre_sysprep: false

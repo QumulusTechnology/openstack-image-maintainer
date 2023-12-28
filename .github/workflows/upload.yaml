@@ -1,4 +1,4 @@
-name: Upload latest OS images to OpenStack
+name: Upload latest OS images to OpenStack - NOTE - this approach is now obsolete - use docker script method instead
 
 on:
   workflow_dispatch:
