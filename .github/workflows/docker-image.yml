@@ -37,31 +37,33 @@ jobs:
         IMAGE_VERSION=$(cat Dockerfile | grep "ENV IMAGE_VERSION " | cut -d " " -f3)
         echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
         echo "IMAGE_VERSION=$IMAGE_VERSION" >> $GITHUB_ENV
-    - name: set credentials
+
+    - name: Set Harbor Environment Variables
       env:
-        DOCKERIO_USERNAME_DEV: ${{ secrets.DOCKERIO_USERNAME_DEV }}
-        DOCKERIO_TOKEN_DEV: ${{ secrets.DOCKERIO_TOKEN_DEV }}
-        DOCKERIO_USERNAME_PROD: ${{ secrets.DOCKERIO_USERNAME_PROD }}
-        DOCKERIO_TOKEN_PROD: ${{ secrets.DOCKERIO_TOKEN_PROD }}
+        HARBOR_TOKEN_PROD: ${{ secrets.HARBOR_TOKEN_PROD }}
+        HARBOR_ADDR_PROD: "repo.qumulus.io"
+        HARBOR_TOKEN_DEV: ${{ secrets.HARBOR_TOKEN_DEV }}
+        HARBOR_ADDR_DEV: "repo.qumulus.dev"
       run: |
-        if [ "$BRANCH" == "main" ]; then
-          echo "DOCKER_USERNAME=$DOCKERIO_USERNAME_DEV" >> $GITHUB_ENV
-          echo "DOCKER_PASSWORD=$DOCKERIO_TOKEN_DEV" >> $GITHUB_ENV
+        if [ "${{ github.base_ref || github.ref_name }}" == "main" ]; then
+          echo "HARBOR_TOKEN=$HARBOR_TOKEN_PROD" >> $GITHUB_ENV
+          echo "HARBOR_ADDR=$HARBOR_ADDR_PROD" >> $GITHUB_ENV
         else
-          echo "DOCKER_USERNAME=$DOCKERIO_USERNAME_PROD" >> $GITHUB_ENV
-          echo "DOCKER_PASSWORD=$DOCKERIO_TOKEN_PROD" >> $GITHUB_ENV
+          echo "HARBOR_TOKEN=$HARBOR_TOKEN_DEV" >> $GITHUB_ENV
+          echo "HARBOR_ADDR=$HARBOR_ADDR_DEV" >> $GITHUB_ENV
         fi
-        echo "REPO_ADDR=docker.io" >> $GITHUB_ENV
-    - name: Login to repository
+        echo "HARBOR_USERNAME=robot\$github" >> $GITHUB_ENV
+
+    - name: Login to Harbor Hub
       uses: docker/login-action@v2
       with:
-        registry: ${{ env.REPO_ADDR }}
-        username: ${{ env.DOCKER_USERNAME }}
-        password: ${{ env.DOCKER_PASSWORD }}
+        registry: ${{ env.HARBOR_ADDR }}
+        username: ${{ env.HARBOR_USERNAME }}
+        password: ${{ env.HARBOR_TOKEN }}
 
     - name: Build the Docker image
       run: |
         DATESTAMP=$(date +%s)
-        docker build . --file Dockerfile --tag ${REPO_ADDR}/qumulus/${IMAGE_NAME}:${DATESTAMP}
-        docker tag ${REPO_ADDR}/qumulus/${IMAGE_NAME}:${DATESTAMP} ${REPO_ADDR}/qumulus/${IMAGE_NAME}:v${IMAGE_VERSION}${DOCKER_POSTFIX}
-        docker push ${REPO_ADDR}/qumulus/${IMAGE_NAME} --all-tags
+        docker build . --file Dockerfile --tag ${HARBOR_ADDR}/qcp-images/${IMAGE_NAME}:${DATESTAMP}
+        docker tag ${HARBOR_ADDR}/qcp-images/${IMAGE_NAME}:${DATESTAMP} ${HARBOR_ADDR}/qcp-images/${IMAGE_NAME}:v${IMAGE_VERSION}${DOCKER_POSTFIX}
+        docker push ${HARBOR_ADDR}/qcp-images/${IMAGE_NAME} --all-tags
