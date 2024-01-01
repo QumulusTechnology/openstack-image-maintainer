@@ -57,7 +57,7 @@ def get_checksum(checksum_url, fileName, imageType: ImageType, image_identifier)
 
     checksum = ""
     response_text = ""
-    if imageType == ImageType.windows_desktop or imageType == ImageType.windows_server:
+    if imageType == ImageType.windows_desktop or imageType == ImageType.windows_server or imageType == ImageType.amphora or imageType == ImageType.vyos:
         with NamedTemporaryFile() as temp_file:
             minio_url=config['minio_url']
             minio_client = Minio(minio_url)

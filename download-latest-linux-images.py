@@ -38,6 +38,8 @@ log_level=config['logging_level'].upper()
 minio_url=config['minio_url']
 enable_vault_ssh = config['enable_vault_ssh']
 force_upload = config['force_upload']
+enable_amphora = config['enable_amphora']
+enable_vyos = config['enable_vyos']
 enable_centos = config['enable_centos']
 enable_centos_stream = config['enable_centos_stream']
 enable_fedora = config['enable_fedora']
@@ -96,12 +98,19 @@ ImageMetadataArray[ImageType.centos] = ImageMetadata("centos","sha512sum","cento
 ImageMetadataArray[ImageType.freebsd] = ImageMetadata("rocky","sha512sum","freebsd", "FreeBSD",512,InstanceFlavor.t1_small)
 ImageMetadataArray[ImageType.rocky] = ImageMetadata("centos","sha256sum","rocky","Rocky",512,InstanceFlavor.t1_small)
 ImageMetadataArray[ImageType.arch] = ImageMetadata("arch","sha256sum","arch", "Arch-Linux",512,InstanceFlavor.t1_small)
-ImageMetadataArray[ImageType.cirros] = ImageMetadata("cirros","md5sum","cirros","Cirros",128, InstanceFlavor.t1_small)
+ImageMetadataArray[ImageType.cirros] = ImageMetadata("cirros","md5sum",None,"Cirros",128, InstanceFlavor.t1_small)
 ImageMetadataArray[ImageType.windows_desktop] = ImageMetadata("admin","sha256sum","windows","Windows",4096,InstanceFlavor.t1_large)
 ImageMetadataArray[ImageType.windows_server] = ImageMetadata("Administrator","sha256sum","windows","WindowsServers",2048,InstanceFlavor.t1_medium)
+ImageMetadataArray[ImageType.amphora] = ImageMetadata("ubuntu","sha256sum",None,"Amphora",512,InstanceFlavor.t1_small)
+ImageMetadataArray[ImageType.vyos] = ImageMetadata("vyos","sha256sum",None,"Vyos",512,InstanceFlavor.t1_small)
 
 ImageArray: List[Image] = []
 
+if enable_amphora:
+    ImageArray.append(Image("2023.2", "latest", ImageType.amphora))
+if enable_vyos:
+    ImageArray.append(Image("1.3", "Equuleus", ImageType.vyos))
+    ImageArray.append(Image("1.4", "Sagitta", ImageType.vyos))
 if enable_centos:
     ImageArray.append(Image("7", None, ImageType.centos))
 if enable_centos_stream:
@@ -178,6 +187,26 @@ for image in ImageArray:
         image_identifier = image_identifier + "-" + image.versionName.lower()
 
     logging.info("{}: processing image".format(image_identifier))
+
+    if image.imageType == ImageType.amphora:
+        imageUrl = "amphora-x64-haproxy-{}-{}.qcow2".format(image.versionNumber,image.versionName)
+        fileName = imageUrl
+        checksumUrl = "amphora-x64-haproxy-{}-{}.qcow2.SHA256SUM".format(image.versionNumber,image.versionName)
+        checksum = get_checksum(checksumUrl,None, image.imageType,image_identifier)
+        if checksum == "error":
+            continue
+        download_protocol = DownloadProtocol.minio
+        customise_os = False
+
+    if image.imageType == ImageType.vyos:
+        imageUrl = "vyos-{}-latest.qcow2".format(image.versionNumber)
+        fileName = imageUrl
+        checksumUrl = "vyos-{}-latest.qcow2.SHA256SUM".format(image.versionNumber)
+        checksum = get_checksum(checksumUrl,None, image.imageType,image_identifier)
+        if checksum == "error":
+            continue
+        download_protocol = DownloadProtocol.minio
+        customise_os = False
 
     if image.imageType == ImageType.arch:
         imageUrl = "https://mirrors.n-ix.net/archlinux/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"
@@ -479,6 +508,12 @@ for image in ImageArray:
         else:
             image_name = ImageMetadataArray[image.imageType].image_name + "-" + image.versionNumber
 
+        if os_version_full is None or os_version_full=="":
+            if image.versionNumber is not None and image.versionNumber != "":
+                os_version_full = image.versionNumber
+            else:
+                os_version_full = image.versionName
+
         mapping = {}
         mapping["name"] = image_name
         mapping["disk_format"] = file_format
@@ -486,7 +521,6 @@ for image in ImageArray:
         mapping["hw_qemu_guest_agent"] = "yes"
         mapping["hw_rng_model"] = "virtio"
         mapping["hw_architecture"] = "x86_64"
-        mapping["os_distro"] = ImageMetadataArray[image.imageType].distro
         mapping["original_hash"] = checksum
         mapping["os_version"] = image.versionNumber
         mapping["os_version_full"] = os_version_full
@@ -499,7 +533,16 @@ for image in ImageArray:
         mapping["original_identifier"] = image_identifier
         mapping["owner"] = service_account_id
         mapping["hw_cdom_bus"] = "sata"
-        mapping["visibility"] = "public"
+
+        if ImageMetadataArray[image.imageType].distro is not None:
+            mapping["os_distro"] = ImageMetadataArray[image.imageType].distro
+
+        if image.imageType==ImageType.amphora:
+            mapping["visibility"] = "private"
+            mapping["tags"] = ["amphora"]
+
+        if image.imageType!=ImageType.amphora:
+            mapping["visibility"] = "public"
 
         if boot_method == BootMethod.uefi:
             mapping["hw_firmware_type"] = "uefi"
@@ -517,24 +560,27 @@ for image in ImageArray:
         temp_folder.cleanup()
 
         for myimage in duplicateImages:
-            dateString = datetime.today().strftime('%Y-%m-%d')
-            newImageName = "{} {} (Archived)".format(myimage.name, dateString)
-            patchBody = [
-                {
-                    "op": "replace",
-                    "path": "/visibility",
-                    "value": "private"
-                },
-                {
-                    "op": "replace",
-                    "path": "/name",
-                    "value": newImageName
-                }
-            ]
-            glance.images._send_image_update_request(
-                image_id=myimage.id,
-                patch_body=patchBody,
-            )
+            if image.imageType==ImageType.amphora:
+                glance.images.delete(myimage.id)
+            else:
+                dateString = datetime.today().strftime('%Y-%m-%d')
+                newImageName = "{} {} (Archived)".format(myimage.name, dateString)
+                patchBody = [
+                    {
+                        "op": "replace",
+                        "path": "/visibility",
+                        "value": "private"
+                    },
+                    {
+                        "op": "replace",
+                        "path": "/name",
+                        "value": newImageName
+                    }
+                ]
+                glance.images._send_image_update_request(
+                    image_id=myimage.id,
+                    patch_body=patchBody,
+                )
 
         logging.info("{}: booting server to warm cache".format(image_identifier))
         server=nova.servers.create(image_name,glance_image.id,flavor_id,nics="none")

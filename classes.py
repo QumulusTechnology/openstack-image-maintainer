@@ -6,13 +6,16 @@ class ImageType(Enum):
     fedora_core = 3
     debian = 4
     ubuntu = 5
-    centos = 7,
-    freebsd = 8,
-    rocky = 9,
-    arch = 10,
-    cirros = 11,
-    windows_desktop = 12,
-    windows_server = 13,
+    centos = 7
+    freebsd = 8
+    rocky = 9
+    arch = 10
+    cirros = 11
+    windows_desktop = 12
+    windows_server = 13
+    amphora = 14
+    vyos = 15
+
 
 class DownloadProtocol(Enum):
     http = 1
@@ -45,4 +48,3 @@ class ImageMetadata(object):
         self.image_name = image_name
         self.min_ram = min_ram
         self.instance_flavor = instance_flavor
-

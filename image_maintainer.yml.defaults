@@ -3,6 +3,9 @@ force_upload: false
 logging_level: INFO
 minio_url: s3api.qumulus.io
 
+
+enable_amphora: true
+enable_vyos: true
 enable_centos: true
 enable_centos_stream: true
 enable_fedora: true
