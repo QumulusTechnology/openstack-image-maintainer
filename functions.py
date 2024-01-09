@@ -15,7 +15,7 @@ retries = Retry(connect=10, read=10, redirect=10, backoff_factor=2)
 def get_config():
     script_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
     config = {}
-    qcp_image_maintainer_default_config_path=os.path.join(script_directory,"image_maintainer.yml.defaults")
+    qcp_image_maintainer_default_config_path=os.path.join(script_directory,"image-maintainer.yml.defaults")
     if os.path.isfile(qcp_image_maintainer_default_config_path):
         with open(qcp_image_maintainer_default_config_path) as f:
             for line in f:
@@ -31,7 +31,7 @@ def get_config():
                 else:
                     config[key] = value.strip()
 
-    qcp_image_maintainer_config_path='/etc/qcp/image_maintainer.yml'
+    qcp_image_maintainer_config_path='/etc/qcp/image-maintainer.yml'
     if os.path.isfile(qcp_image_maintainer_config_path):
         with open(qcp_image_maintainer_config_path) as f:
             for line in f:

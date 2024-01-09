@@ -2,7 +2,7 @@
 
 sudo mkdir -p -m 755 /etc/kolla /etc/qcp
 
-sudo cp  --no-preserve=all /var/lib/image/qcp/image_maintainer.yml /etc/qcp 2> /dev/null
+sudo cp  --no-preserve=all /var/lib/image/qcp/image-maintainer.yml /etc/qcp 2> /dev/null
 
 set -e
 
