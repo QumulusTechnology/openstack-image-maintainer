@@ -33,6 +33,13 @@ class InstanceFlavor(Enum):
     t1_small = 1
     t1_medium = 2
     t1_large = 3
+    t1_xlarge = 4
+    t1_xxlarge = 5
+    c1_small = 6
+    c1_medium = 7
+    c1_large = 8
+    c1_xlarge = 9
+    c1_xxlarge = 10
 
 class Image(object):
     def __init__(self, versionNumber, versionName, imageType: ImageType):
